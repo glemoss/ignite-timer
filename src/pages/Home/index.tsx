@@ -1,7 +1,12 @@
-import { Play } from "phosphor-react";
+import { HandPalm, Play } from "phosphor-react";
 import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
+import { useEffect, useRef, useState } from "react";
+
 import * as zod from "zod";
+import { zodResolver } from "@hookform/resolvers/zod";
+
+import { differenceInSeconds } from "date-fns";
+
 
 import { 
     CountdownContainer,
@@ -10,9 +15,9 @@ import {
     MinutesAmountInput,
     Separator,
     StartCountdownButton,
+    StopCountdownButton,
     TaskInput
 } from "./styles";
-import { useState } from "react";
 
 const createNewCycleSchema = zod.object({
     task: zod.string().min(1, 'Informe a tarefa'),
@@ -28,6 +33,9 @@ interface Cycle {
     id: string;
     task: string;
     minutesAmount: number;
+    startDate: Date;
+    interruptDate?: Date;
+    finishedDate?: Date;
 }
 
 export function Home() {
@@ -43,6 +51,50 @@ export function Home() {
         }
     });
 
+    const activeCycle = cycles.find((cycle) => cycle.id === activeCycleId);
+
+    const totalTimeInSeconds = activeCycle ? activeCycle.minutesAmount * 60 : 0;
+
+    const audio = useRef(new Audio('src/assets/alarm.wav'));
+
+    useEffect(() => {
+        let interval: number;
+
+        if (activeCycle) {
+            interval = setInterval(() => {
+                const secondsDifference = differenceInSeconds(
+                    new Date(),
+                    activeCycle.startDate
+                );
+
+
+            if(secondsDifference >= totalTimeInSeconds) {
+                setCycles((cycles) => cycles.map(cycle => {
+                    if (cycle.id === activeCycleId) {
+                        audio.current.play();
+                        return {
+                            ...cycle,
+                            finishedDate: new Date(),
+                        }
+                    } else {
+                        return cycle;
+                    }
+                }),
+            );
+                setAmountSecondsPassed(totalTimeInSeconds)
+
+                clearInterval(interval);
+            } else {
+                setAmountSecondsPassed(secondsDifference)
+            }
+        }, 1000);
+        }
+        return () => {
+            clearInterval(interval);
+        }
+    }, [activeCycle, totalTimeInSeconds, activeCycleId]);
+
+
     function handleCreateNewCycle(data: CreateNewCycleFormData) {
         const id = String(new Date().getTime());
 
@@ -50,17 +102,35 @@ export function Home() {
             id,
             task: data.task,
             minutesAmount: data.minutesAmount,
+            startDate: new Date(),
         }
 
         setCycles((state) => [...state, newCycle]);
+        setAmountSecondsPassed(0)
         setActiveCycleId(id);
 
         reset();
     }
 
-    const activeCycle = cycles.find((cycle) => cycle.id === activeCycleId);
+    function handleStopCountdown() {
+        setActiveCycleId(null);
+        document.title = 'Ignite Timer';
 
-    const totalTimeInSeconds = activeCycle ? activeCycle.minutesAmount * 60 : 0;
+        setCycles((cycles)=> cycles.map(cycle => {
+            if (cycle.id === activeCycleId) {
+                return {
+                   ...cycle,
+                    interruptDate: new Date(),
+                }
+            } else {
+                return cycle;
+            }
+
+        }))
+        audio.current.pause();
+        audio.current.currentTime = 0;
+    }
+
     const secondsLeft = activeCycle ? totalTimeInSeconds - amountSecondsPassed : 0;
 
     const minutesAmount = Math.floor(secondsLeft / 60);
@@ -68,6 +138,12 @@ export function Home() {
 
     const minutes = String(minutesAmount).padStart(2, '0');
     const seconds = String(secondsAmount).padStart(2, '0');
+
+    useEffect(() => {
+        if (activeCycle) {
+            document.title = `${minutes}:${seconds} - ${activeCycle.task}`
+        }
+    })
 
     const task = watch('task')
     const isSubmitDisabled = task
@@ -81,14 +157,15 @@ export function Home() {
                         id="task"
                         list="task-suggestions"
                         placeholder="Dê um nome para o seu projeto"
+                        disabled={!!activeCycle}
                         {...register('task')}
                     />
 
                     <datalist id="task-suggestions">
-                        <option value="Projeto-1" />
-                        <option value="Projeto-2" />
-                        <option value="Projeto-3" />
-                        <option value="Projeto-4" />
+                        <option value="Limpar a casa" />
+                        <option value="Lavar a louça" />
+                        <option value="Meditar" />
+                        <option value="Estudar" />
                     </datalist>
 
                     <label htmlFor="minutesAmout">durante</label>
@@ -96,7 +173,6 @@ export function Home() {
                         id="minutesAmout"
                         type="number"
                         placeholder="00"
-                        step={5}
                         min={5}
                         max={60}
                         {...register('minutesAmount', { valueAsNumber: true })}
@@ -112,11 +188,17 @@ export function Home() {
                     <span>{seconds[0]}</span>
                     <span>{seconds[1]}</span>
                 </CountdownContainer>
-
-                <StartCountdownButton type="submit" disabled={!isSubmitDisabled}>
-                    <Play size={24}/>
-                    Começar
-                </StartCountdownButton>
+                { activeCycle ? (
+                    <StopCountdownButton type="button" onClick={handleStopCountdown}>
+                    <HandPalm size={24}/>
+                        Interromper
+                    </StopCountdownButton>
+                ) : (
+                    <StartCountdownButton type="submit" disabled={!isSubmitDisabled}>
+                        <Play size={24}/>
+                        Começar
+                    </StartCountdownButton>
+                )}
             </form>
         </HomeContainer>
     )
